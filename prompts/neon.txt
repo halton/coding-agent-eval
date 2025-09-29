@@ -1,0 +1,49 @@
+Create a browser game "Neon Runner" with HTML5 Canvas + vanilla JS.
+
+Gameplay:
+1) Endless runner: jump over obstacles.
+2) Physics: gravity, jump impulse, coyote time (~80ms).
+3) Difficulty ramps every 30s.
+4) Score by distance; streak bonus for 3 perfect jumps in a row.
+5) Persist high score in localStorage.
+6) P = pause/resume; R = restart after game over.
+
+Engineering:
+- Separate logic from rendering so unit tests require no DOM.
+- Structure:
+
+neon-runner/
+  public/
+    index.html
+    game.js
+    render.js
+    input.js
+  src/
+    physics.js
+    spawner.js
+    score.js
+  tests/
+    physics.test.js
+    spawner.test.js
+    score.test.js
+  smoke.js
+  package.json  # scripts: test, start
+  README.md
+  accept.sh
+
+Tooling:
+- npm scripts:
+  "test": "jest -c jest.config.json --runInBand",
+  "start": "npx http-server public -p 8080 -c-1"
+- devDependencies: jest ^29.x, http-server
+- accept.sh:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  npm ci
+  npm test
+  node smoke.js
+  echo "ACCEPT: OK"
+
+Constraints:
+- No frameworks; vanilla JS only.
+- Tests cover physics edge cases and spawner difficulty ramp.

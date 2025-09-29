@@ -1,0 +1,47 @@
+# Evaluation results directories (auto-generated)
+eval_results_*/
+
+# Agent-specific temporary files
+agent-eval-one/
+results_*/
+
+# Logs
+*.log
+
+# Temporary files
+.DS_Store
+*.tmp
+*.temp
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# AI CLI temporary files
+.claude/
+.copilot/
+.gemini/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini

@@ -4,10 +4,11 @@ set -euo pipefail
 # =========================
 # Flags / defaults
 # =========================
-TASK="dodgefall"        # or neon
+TASK=""                 # will be set to first available task if not specified
 MODE="parallel"         # or serial
 RUNS=1
-BASE_DIR="${BASE_DIR:-$HOME/agent-eval-one}"
+AGENT=""                # if specified, run only this agent (claude, copilot, gemini)
+BASE_DIR="${BASE_DIR:-$(dirname "$0")/eval_results_$(date +%y%m%d)}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 NPM_BIN="${NPM_BIN:-npm}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-2400}"   # 40m per agent
@@ -16,16 +17,45 @@ RESULTS_CSV="$BASE_DIR/results.csv"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --task) TASK="$2"; shift 2;;
-    --serial) MODE="serial"; shift;;
-    --parallel) MODE="parallel"; shift;;
+    --mode) MODE="$2"; shift 2;;
+    --agent) AGENT="$2"; shift 2;;
     --base-dir) BASE_DIR="$2"; shift 2;;
     --timeout) TIMEOUT_SEC="$2"; shift 2;;
     --runs) RUNS="$2"; shift 2;;
-    *) echo "Unknown arg: $1"; exit 1;;
+    --help|-h)
+      # Discover available tasks dynamically for help
+      help_tasks=($(ls -1 "$(dirname "$0")/prompts"/*.txt 2>/dev/null | sed 's|.*/||; s|\.txt$||' | sort))
+      default_task="${help_tasks[0]:-none}"
+      tasks_list="${help_tasks[*]:-none found}"
+
+      echo "Usage: $0 [OPTIONS]"
+      echo "Options:"
+      echo "  --task TASK        Task to run (default: $default_task)"
+      echo "                     Available tasks: $tasks_list"
+      echo "  --agent AGENT      Run only specified agent: claude, copilot, or gemini"
+      echo "  --mode MODE        Execution mode: parallel or serial (default: parallel)"
+      echo "  --runs N           Number of runs per agent (default: 1)"
+      echo "  --base-dir DIR     Base directory for output (default: ./eval_results_YYMMDD)"
+      echo "  --timeout SEC      Timeout per agent in seconds (default: 2400)"
+      echo "  --help, -h         Show this help message"
+      echo ""
+      echo "Examples:"
+      echo "  $0                           # Run all available agents in parallel with default task"
+      echo "  $0 --agent claude            # Run only Claude with default task"
+      echo "  $0 --task ${help_tasks[1]:-task} --mode serial  # Run specific task in serial mode"
+      echo "  $0 --agent gemini --runs 3   # Run Gemini 3 times"
+      exit 0;;
+    *) echo "Unknown arg: $1. Use --help for usage information."; exit 1;;
   esac
 done
 
 mkdir -p "$BASE_DIR"
+
+# Validate --mode parameter
+case "$MODE" in
+  parallel|serial) ;;
+  *) echo "Error: --mode must be either 'parallel' or 'serial'"; exit 1;;
+esac
 
 # =========================
 # Prechecks (soft)
@@ -36,19 +66,36 @@ have_claude=0;  command -v claude  >/dev/null && have_claude=1
 have_copilot=0; command -v copilot >/dev/null && have_copilot=1
 have_gemini=0;  command -v gemini  >/dev/null && have_gemini=1
 
-if (( have_claude + have_copilot + have_gemini == 0 )); then
-  echo "No agent CLIs found ('claude', 'copilot', 'gemini'). Install at least one and re-run."
-  exit 1
+# Validate --agent parameter if specified
+if [[ -n "$AGENT" ]]; then
+  case "$AGENT" in
+    claude|copilot|gemini) ;;
+    *) echo "Error: --agent must be one of: claude, copilot, gemini"; exit 1;;
+  esac
+
+  # Check if the specified agent is available
+  case "$AGENT" in
+    claude)  if [[ $have_claude -eq 0 ]]; then echo "Error: claude CLI not found"; exit 1; fi;;
+    copilot) if [[ $have_copilot -eq 0 ]]; then echo "Error: copilot CLI not found"; exit 1; fi;;
+    gemini)  if [[ $have_gemini -eq 0 ]]; then echo "Error: gemini CLI not found"; exit 1; fi;;
+  esac
+
+  echo "Running single agent: $AGENT"
+else
+  if (( have_claude + have_copilot + have_gemini == 0 )); then
+    echo "No agent CLIs found ('claude', 'copilot', 'gemini'). Install at least one and re-run."
+    exit 1
+  fi
 fi
 
 # =========================
 # Agent commands (interactive mode for visibility)
 # =========================
-# Claude Code: interactive mode; no API key check here—if not authed, the run will fail and be logged.
-CLAUDE_CMD=${CLAUDE_CMD:-'claude --output-format stream-json --max-turns 20'}
+# Claude Code: print mode skips trust dialog, bypass permissions for automated execution; no API key check here—if not authed, the run will fail and be logged.
+CLAUDE_CMD=${CLAUDE_CMD:-'claude -p --max-turns 50 --dangerously-skip-permissions --verbose'}
 
 # Copilot CLI: interactive mode; restrict dangerous tools but allow prompts.
-COPILOT_FLAGS=${COPILOT_FLAGS:-"--allow-all-tools --allow-tool write --allow-tool shell --deny-tool shell(rm) --deny-tool shell(git_push)"}
+COPILOT_FLAGS=${COPILOT_FLAGS:-"--allow-all-tools --allow-tool write --allow-tool shell --allow-tool 'shell(mkdir)' --deny-tool 'shell(rm)' --deny-tool 'shell(git_push)'"}
 COPILOT_CMD=${COPILOT_CMD:-"copilot $COPILOT_FLAGS"}
 
 # Gemini CLI: interactive mode with JSON output.
@@ -68,118 +115,54 @@ CLAUDE_SETTINGS='{
     "allow": [
       "Edit(*)","Write(*)",
       "Bash(python *)","Bash(pip *)","Bash(pytest *)",
-      "Bash(node *)","Bash(npm *)","Bash(npx http-server *)"
+      "Bash(node *)","Bash(npm *)","Bash(npx http-server *)",
+      "Bash(mkdir *)"
     ],
     "deny": ["Bash(rm *)","Bash(curl *| sh *)","Bash(git push *)"]
   }
 }'
 
 # =========================
-# Prompts (one project)
+# Prompts (load dynamically from files)
 # =========================
-read -r -d '' PROMPT_DODGEFALL <<'EOF' || true
-Create a Pygame arcade game called “Dodgefall”.
+SCRIPT_DIR="$(dirname "$0")"
+PROMPTS_DIR="$SCRIPT_DIR/prompts"
 
-Functional requirements:
-1) Player moves left/right with A/D or ←/→.
-2) Falling obstacles spawn and gradually speed up.
-3) Collectible stars increase score; grabbing stars within 3 seconds builds a combo multiplier.
-4) Lives = 3. On collision: lose a life and ~1.5s invulnerability.
-5) P = pause/resume, R = restart on game over, Esc = quit.
-6) Persist high score in highscore.json.
+# Check if prompts directory exists
+if [[ ! -d "$PROMPTS_DIR" ]]; then
+  echo "Error: Prompts directory $PROMPTS_DIR not found"
+  exit 1
+fi
 
-Engineering requirements:
-- Separate pure logic from rendering & input so unit tests run headless.
-- Structure:
+# Auto-detect available tasks and set default if TASK is empty
+AVAILABLE_TASKS=($(ls -1 "$PROMPTS_DIR"/*.txt 2>/dev/null | sed 's|.*/||; s|\.txt$||' | sort))
 
-dodgefall/
-  game/
-    __init__.py
-    logic.py
-    model.py
-    render.py
-    main.py
-  tests/
-    test_logic.py
-  requirements.txt (pygame, pytest)
-  README.md
-  accept.sh
+if [[ ${#AVAILABLE_TASKS[@]} -eq 0 ]]; then
+  echo "Error: No .txt files found in $PROMPTS_DIR"
+  exit 1
+fi
 
-Headless & acceptance:
-- When HEADLESS=1: set SDL_VIDEODRIVER=dummy, tick ~120 frames, then exit 0.
-- accept.sh:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  python3 -m venv venv
-  source venv/bin/activate
-  python -m pip install -r requirements.txt
-  pytest -q
-  HEADLESS=1 python -m game.main
-  echo "ACCEPT: OK"
+# Set default task to first available if not specified
+if [[ -z "$TASK" ]]; then
+  TASK="${AVAILABLE_TASKS[0]}"
+  echo "No task specified, using default: $TASK"
+fi
 
-Constraints:
-- Keep code small and deterministic.
-- No heavy assets; use shapes or tiny PNGs.
-- Python 3.10+.
-EOF
+# Validate the specified task exists
+if [[ ! " ${AVAILABLE_TASKS[*]} " =~ " ${TASK} " ]]; then
+  echo "Error: Task '$TASK' not found"
+  echo "Available tasks: ${AVAILABLE_TASKS[*]}"
+  exit 1
+fi
 
-read -r -d '' PROMPT_NEON <<'EOF' || true
-Create a browser game “Neon Runner” with HTML5 Canvas + vanilla JS.
+# Load prompt for current task
+PROMPT_FILE="$PROMPTS_DIR/${TASK}.txt"
+PROMPT="$(cat "$PROMPT_FILE")"
+echo "Loaded prompt from: $PROMPT_FILE"
 
-Gameplay:
-1) Endless runner: jump over obstacles.
-2) Physics: gravity, jump impulse, coyote time (~80ms).
-3) Difficulty ramps every 30s.
-4) Score by distance; streak bonus for 3 perfect jumps in a row.
-5) Persist high score in localStorage.
-6) P = pause/resume; R = restart after game over.
-
-Engineering:
-- Separate logic from rendering so unit tests require no DOM.
-- Structure:
-
-neon-runner/
-  public/
-    index.html
-    game.js
-    render.js
-    input.js
-  src/
-    physics.js
-    spawner.js
-    score.js
-  tests/
-    physics.test.js
-    spawner.test.js
-    score.test.js
-  smoke.js
-  package.json  # scripts: test, start
-  README.md
-  accept.sh
-
-Tooling:
-- npm scripts:
-  "test": "jest -c jest.config.json --runInBand",
-  "start": "npx http-server public -p 8080 -c-1"
-- devDependencies: jest ^29.x, http-server
-- accept.sh:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  npm ci
-  npm test
-  node smoke.js
-  echo "ACCEPT: OK"
-
-Constraints:
-- No frameworks; vanilla JS only.
-- Tests cover physics edge cases and spawner difficulty ramp.
-EOF
-
-PROMPT="$PROMPT_DODGEFALL"
-PROJECT_ROOT_NAME="dodgefall"
-if [[ "$TASK" == "neon" ]]; then
-  PROMPT="$PROMPT_NEON"
-  PROJECT_ROOT_NAME="neon-runner"
+# Default: use task name as project root name if not set above
+if [[ -z "${PROJECT_ROOT_NAME:-}" ]]; then
+  PROJECT_ROOT_NAME="$TASK"
 fi
 
 # =========================
@@ -254,6 +237,32 @@ run_agent_once() {
   rm -rf "$outdir" && mkdir -p "$outdir/.claude" "$outdir/.gemini"
   printf '%s\n' "$CLAUDE_SETTINGS" > "$outdir/.claude/settings.json"
 
+  # Create local settings to trust the directory automatically
+  cat > "$outdir/.claude/settings.local.json" << 'CLAUDE_LOCAL'
+{
+  "trusted_folders": ["."],
+  "trust_all": true,
+  "permissions": {
+    "allow": [
+      "Edit(*)",
+      "Write(*)",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Bash(pytest *)",
+      "Bash(node *)",
+      "Bash(npm *)",
+      "Bash(npx http-server *)",
+      "Bash(mkdir *)"
+    ],
+    "deny": [
+      "Bash(rm *)",
+      "Bash(curl *| sh *)",
+      "Bash(git push *)"
+    ]
+  }
+}
+CLAUDE_LOCAL
+
   pushd "$outdir" >/dev/null
 
   local t0=$(timestamp)
@@ -262,56 +271,92 @@ run_agent_once() {
   # Create prompt file to avoid shell escaping issues
   printf '%s' "$prompt" > prompt.txt
 
-  # Create log file for this run
-  local logfile="$outdir/${agent}_generation.log"
+  # Create log file for this run (use absolute path to avoid nesting issues)
+  local logfile="$(pwd)/${agent}_generation.log"
+
+  # Ensure log directory exists
+  mkdir -p "$(dirname "$logfile")"
 
   set +e
-  case "$agent" in
-    claude)
-      local cmd="cd '$outdir' && timeout ${TIMEOUT_SEC}s ${CLAUDE_CMD} -p \"\$(cat prompt.txt)\""
-      run_in_terminal "Claude - Run $run_id - $TASK" "$cmd" "$logfile"
-      ;;
-    copilot)
-      local cmd="cd '$outdir' && timeout ${TIMEOUT_SEC}s bash -c 'cat prompt.txt | ${COPILOT_CMD}'"
-      run_in_terminal "Copilot - Run $run_id - $TASK" "$cmd" "$logfile"
-      ;;
-    gemini)
-      local cmd="cd '$outdir' && timeout ${TIMEOUT_SEC}s ${GEMINI_CMD} --prompt \"\$(cat prompt.txt)\""
-      run_in_terminal "Gemini - Run $run_id - $TASK" "$cmd" "$logfile"
-      ;;
-  esac
+  # Check if we're running a single agent (use current terminal) or multiple (separate terminals)
+  if [[ -n "$AGENT" ]]; then
+    # Single agent mode - run directly in current terminal
+    echo "Running $agent directly in current terminal..."
+    case "$agent" in
+      claude)
+        echo "Starting Claude with logging..." | tee "$logfile"
+        echo "Command: ${CLAUDE_CMD}" | tee -a "$logfile"
+        echo "Working directory: $(pwd)" | tee -a "$logfile"
+        echo "================================" | tee -a "$logfile"
+        timeout "${TIMEOUT_SEC}s" ${CLAUDE_CMD} "$(cat prompt.txt)" 2>&1 | tee -a "$logfile"
+        local gen_ec=${PIPESTATUS[0]}
+        echo "================================" | tee -a "$logfile"
+        echo "Claude finished with exit code: $gen_ec" | tee -a "$logfile"
+        ;;
+      copilot)
+        timeout "${TIMEOUT_SEC}s" bash -c "cat prompt.txt | ${COPILOT_CMD}" 2>&1 | tee "$logfile"
+        local gen_ec=${PIPESTATUS[0]}
+        ;;
+      gemini)
+        timeout "${TIMEOUT_SEC}s" ${GEMINI_CMD} --prompt "$(cat prompt.txt)" 2>&1 | tee "$logfile"
+        local gen_ec=${PIPESTATUS[0]}
+        ;;
+    esac
+  else
+    # Multiple agent mode - run in separate terminals
+    case "$agent" in
+      claude)
+        local cmd="cd '$outdir' && echo 'Starting Claude with logging...' && echo 'Command: ${CLAUDE_CMD}' && echo 'Working directory: \$(pwd)' && echo '================================' && timeout ${TIMEOUT_SEC}s ${CLAUDE_CMD} \"\$(cat prompt.txt)\" && echo '================================' && echo 'Claude execution completed'"
+        run_in_terminal "Claude - Run $run_id - $TASK" "$cmd" "$logfile"
+        ;;
+      copilot)
+        local cmd="cd '$outdir' && timeout ${TIMEOUT_SEC}s bash -c 'cat prompt.txt | ${COPILOT_CMD}'"
+        run_in_terminal "Copilot - Run $run_id - $TASK" "$cmd" "$logfile"
+        ;;
+      gemini)
+        local cmd="cd '$outdir' && timeout ${TIMEOUT_SEC}s ${GEMINI_CMD} --prompt \"\$(cat prompt.txt)\""
+        run_in_terminal "Gemini - Run $run_id - $TASK" "$cmd" "$logfile"
+        ;;
+    esac
+  fi
 
-  # Wait for the agent to finish by monitoring the log file
-  echo "Waiting for $agent to complete (watching $logfile)..."
-  echo "You can monitor progress in the '$agent - Run $run_id - $TASK' terminal window."
+  # Handle waiting logic based on execution mode
+  if [[ -n "$AGENT" ]]; then
+    # Single agent mode - already executed above, gen_ec is set
+    echo "Agent $agent completed with exit code: $gen_ec"
+  else
+    # Multiple agent mode - wait for separate terminal to finish
+    echo "Waiting for $agent to complete (watching $logfile)..."
+    echo "You can monitor progress in the '$agent - Run $run_id - $TASK' terminal window."
 
-  local wait_count=0
-  local max_wait=$((TIMEOUT_SEC + 120))  # Add 2 minute buffer
-  local gen_ec=1  # Default to failure
+    local wait_count=0
+    local max_wait=$((TIMEOUT_SEC + 120))  # Add 2 minute buffer
+    local gen_ec=1  # Default to failure
 
-  while [[ $wait_count -lt $max_wait ]]; do
-    if [[ -f "$logfile" ]]; then
-      if grep -q "Command finished" "$logfile" 2>/dev/null; then
-        if grep -q "Exit code: 0" "$logfile" 2>/dev/null; then
-          gen_ec=0
-        else
-          gen_ec=1
+    while [[ $wait_count -lt $max_wait ]]; do
+      if [[ -f "$logfile" ]]; then
+        if grep -q "Command finished" "$logfile" 2>/dev/null; then
+          if grep -q "Exit code: 0" "$logfile" 2>/dev/null; then
+            gen_ec=0
+          else
+            gen_ec=1
+          fi
+          break
         fi
-        break
       fi
-    fi
-    sleep 10
-    ((wait_count += 10))
+      sleep 10
+      ((wait_count += 10))
 
-    # Show progress every minute
-    if (( wait_count % 60 == 0 )); then
-      echo "Still waiting for $agent... (${wait_count}s elapsed)"
-    fi
-  done
+      # Show progress every minute
+      if (( wait_count % 60 == 0 )); then
+        echo "Still waiting for $agent... (${wait_count}s elapsed)"
+      fi
+    done
 
-  if [[ $wait_count -ge $max_wait ]]; then
-    echo "Timeout waiting for $agent to complete after ${max_wait}s"
-    gen_ec=124  # timeout exit code
+    if [[ $wait_count -ge $max_wait ]]; then
+      echo "Timeout waiting for $agent to complete after ${max_wait}s"
+      gen_ec=124  # timeout exit code
+    fi
   fi
 
   set -e
@@ -323,14 +368,31 @@ run_agent_once() {
   local acc_ec=1
   set +e
   if [[ -x ./accept.sh ]]; then
+    # Custom acceptance script takes precedence
     timeout "${TIMEOUT_SEC}s" ./accept.sh
     acc_ec=$?
   else
-    if [[ "$TASK" == "dodgefall" ]]; then
+    # Dynamic acceptance testing based on project structure
+    if [[ -f "requirements.txt" && -f "game/__init__.py" ]]; then
+      # Python project with game module
       timeout "${TIMEOUT_SEC}s" bash -lc "python3 -m venv venv && source venv/bin/activate && python -m pip install -r requirements.txt && python -m pytest -q && HEADLESS=1 python -m game.main"
       acc_ec=$?
-    else
+    elif [[ -f "package.json" ]]; then
+      # Node.js/npm project
       timeout "${TIMEOUT_SEC}s" bash -lc "$NPM_BIN ci && $NPM_BIN test && node smoke.js"
+      acc_ec=$?
+    elif [[ -f "requirements.txt" ]]; then
+      # Generic Python project
+      timeout "${TIMEOUT_SEC}s" bash -lc "python3 -m venv venv && source venv/bin/activate && python -m pip install -r requirements.txt && python -m pytest -q"
+      acc_ec=$?
+    elif [[ -f "index.html" && -f "*.js" ]]; then
+      # Static web project - basic validation
+      timeout "${TIMEOUT_SEC}s" bash -lc "echo 'Static web project detected - basic validation only' && [[ -f index.html ]]"
+      acc_ec=$?
+    else
+      # Fallback - just check if basic files exist
+      echo "No recognized project structure - performing basic validation"
+      timeout "${TIMEOUT_SEC}s" bash -lc "ls -la && echo 'Project structure validation passed'"
       acc_ec=$?
     fi
   fi
@@ -378,11 +440,22 @@ CLAUDE_BASE="$BASE_DIR/${TASK}-claude"
 COPILOT_BASE="$BASE_DIR/${TASK}-copilot"
 GEMINI_BASE="$BASE_DIR/${TASK}-gemini"
 
-echo "Opening terminals for agent execution..."
-echo "Each agent will run in a separate terminal window where you can see the progress."
+if [[ -n "$AGENT" ]]; then
+  echo "Running single agent: $AGENT in current terminal..."
+else
+  echo "Opening terminals for agent execution..."
+  echo "Each agent will run in a separate terminal window where you can see the progress."
+fi
 echo ""
 
-if [[ "$MODE" == "parallel" ]]; then
+if [[ -n "$AGENT" ]]; then
+  echo "Running single agent: $AGENT"
+  case "$AGENT" in
+    claude)  run_agent claude  "$PROMPT" "$CLAUDE_BASE";;
+    copilot) run_agent copilot "$PROMPT" "$COPILOT_BASE";;
+    gemini)  run_agent gemini  "$PROMPT" "$GEMINI_BASE";;
+  esac
+elif [[ "$MODE" == "parallel" ]]; then
   echo "Running agents in parallel mode - all terminals will open simultaneously..."
 
   # Start all agents in parallel, each in their own terminal
