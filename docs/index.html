@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Coding Agent Evaluation</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --secondary: #64748b;
+            --background: #f8fafc;
+            --card: #ffffff;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --text-muted: #64748b;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            background: var(--background);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--primary), #7c3aed);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .header p {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+        
+        .stat-card {
+            background: var(--card);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        
+        .stat-label {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 0.5rem;
+        }
+        
+        .results-section {
+            background: var(--card);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border);
+            margin-bottom: 2rem;
+        }
+        
+        .results-section h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+        
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .result-card {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .result-header {
+            background: var(--background);
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .result-title {
+            font-weight: 600;
+            font-size: 1.125rem;
+        }
+        
+        .result-date {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+        
+        .result-body {
+            padding: 1rem;
+        }
+        
+        .success-badge {
+            background: #dcfce7;
+            color: #166534;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            display: inline-block;
+            margin-bottom: 0.5rem;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: background 0.2s;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .btn:hover {
+            background: #1d4ed8;
+        }
+        
+        .btn-secondary {
+            background: var(--secondary);
+        }
+        
+        .btn-secondary:hover {
+            background: #475569;
+        }
+        
+        .tasks-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        
+        .task-card {
+            background: var(--card);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        
+        .task-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .calculator-icon {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        }
+        
+        .dodgefall-icon {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+        
+        .neon-icon {
+            background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        }
+        
+        .task-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .task-description {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 2rem 0;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+            margin-top: 3rem;
+        }
+        
+        .github-link {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .github-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>AI Coding Agent Evaluation</h1>
+            <p>Comprehensive evaluation framework comparing Claude, GitHub Copilot, and Gemini across diverse coding tasks</p>
+        </header>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number">3</div>
+                <div class="stat-label">AI Agents</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">3</div>
+                <div class="stat-label">Coding Tasks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">100%</div>
+                <div class="stat-label">Success Rate</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">9</div>
+                <div class="stat-label">Total Implementations</div>
+            </div>
+        </div>
+        
+        <section class="results-section">
+            <h2>Latest Evaluation Results</h2>
+            <div class="results-grid">
+                <div class="result-card">
+                    <div class="result-header">
+                        <div class="result-title">September 30, 2025 Evaluation</div>
+                        <div class="result-date">All Tasks • All Agents • Parallel Mode</div>
+                    </div>
+                    <div class="result-body">
+                        <div class="success-badge">100% Success Rate</div>
+                        <p>Comprehensive evaluation across calculator, dodgefall, and neon tasks with all three AI agents achieving perfect success rates.</p>
+                        <div style="margin-top: 1rem;">
+                            <a href="results/2025-09-30/report.html" class="btn">View Full Report</a>
+                            <a href="results/2025-09-30/results.csv" class="btn btn-secondary">Download CSV</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section class="results-section">
+            <h2>Evaluation Tasks</h2>
+            <p>Our evaluation framework tests AI coding agents across three distinct categories to assess versatility and capability:</p>
+            
+            <div class="tasks-overview">
+                <div class="task-card">
+                    <div class="task-icon calculator-icon">🧮</div>
+                    <div class="task-title">Web Calculator</div>
+                    <div class="task-description">
+                        HTML/CSS/JavaScript calculator with advanced features including memory functions, 
+                        keyboard support, and comprehensive testing suite.
+                    </div>
+                </div>
+                
+                <div class="task-card">
+                    <div class="task-icon dodgefall-icon">🎮</div>
+                    <div class="task-title">Dodgefall Game</div>
+                    <div class="task-description">
+                        Python/Pygame arcade game with physics engine, collision detection, 
+                        scoring system, and clean architecture separation.
+                    </div>
+                </div>
+                
+                <div class="task-card">
+                    <div class="task-icon neon-icon">🌟</div>
+                    <div class="task-title">Neon Runner</div>
+                    <div class="task-description">
+                        Browser-based endless runner with vanilla JavaScript, Canvas rendering, 
+                        physics simulation, and comprehensive unit testing.
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section class="results-section">
+            <h2>Explore Individual Results</h2>
+            <p>Browse detailed implementations and results for each agent and task combination:</p>
+            
+            <div style="margin-top: 1.5rem;">
+                <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Calculator Task Results</h3>
+                <a href="results/2025-09-30/calculator-claude-run1/calculator/" class="btn">Claude Implementation</a>
+                <a href="results/2025-09-30/calculator-copilot-run1/calculator/" class="btn">Copilot Implementation</a>
+                <a href="results/2025-09-30/calculator-gemini-run1/calculator/" class="btn">Gemini Implementation</a>
+            </div>
+            
+            <div style="margin-top: 1.5rem;">
+                <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Dodgefall Task Results</h3>
+                <a href="results/2025-09-30/dodgefall-claude-run1/dodgefall/" class="btn">Claude Implementation</a>
+                <a href="results/2025-09-30/dodgefall-copilot-run1/dodgefall/" class="btn">Copilot Implementation</a>
+                <a href="results/2025-09-30/dodgefall-gemini-run1/dodgefall/" class="btn">Gemini Implementation</a>
+            </div>
+            
+            <div style="margin-top: 1.5rem;">
+                <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Neon Runner Task Results</h3>
+                <a href="results/2025-09-30/neon-claude-run1/neon-runner/public/" class="btn">Claude Implementation</a>
+                <a href="results/2025-09-30/neon-copilot-run1/neon-runner/public/" class="btn">Copilot Implementation</a>
+                <a href="results/2025-09-30/neon-gemini-run1/neon-runner/public/" class="btn">Gemini Implementation</a>
+            </div>
+        </section>
+        
+        <section class="results-section">
+            <h2>About This Evaluation</h2>
+            <p>This evaluation framework provides objective assessment of AI coding agents across diverse programming challenges. Key features:</p>
+            <ul style="margin: 1rem 0; padding-left: 2rem;">
+                <li><strong>Parallel Execution:</strong> All agents work simultaneously for fair comparison</li>
+                <li><strong>Acceptance Testing:</strong> Each implementation is validated against specific criteria</li>
+                <li><strong>Multiple Technologies:</strong> Tests span web development, game development, and system programming</li>
+                <li><strong>Reproducible Results:</strong> Automated testing ensures consistent evaluation standards</li>
+                <li><strong>Open Source:</strong> Full framework and results available for inspection and extension</li>
+            </ul>
+        </section>
+        
+        <footer class="footer">
+            <p>
+                Evaluation framework available on 
+                <a href="https://github.com/halton/coding-agent-eval" class="github-link">GitHub</a>
+                • Results updated September 30, 2025
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
