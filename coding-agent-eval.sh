@@ -49,7 +49,68 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# =========================
+# Directory Management with Backup
+# =========================
+# If BASE_DIR exists, create a backup with timestamp
+if [[ -d "$BASE_DIR" ]]; then
+  BACKUP_DIR="${BASE_DIR}_backup_$(date +%H%M%S)"
+  echo "Directory $BASE_DIR exists, backing up to $BACKUP_DIR"
+  mv "$BASE_DIR" "$BACKUP_DIR"
+fi
+
+# Create fresh BASE_DIR
 mkdir -p "$BASE_DIR"
+
+# Ensure .gitignore exists and includes eval_results_* pattern
+GITIGNORE_FILE="$(dirname "$0")/.gitignore"
+if [[ ! -f "$GITIGNORE_FILE" ]]; then
+  echo "Creating .gitignore file..."
+  cat > "$GITIGNORE_FILE" << 'GITIGNORE'
+# Evaluation results directories
+eval_results_*
+
+# Temporary files
+/tmp/
+*.tmp
+*.log
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+GITIGNORE
+else
+  # Check if eval_results_* pattern is already in .gitignore
+  if ! grep -q "eval_results_" "$GITIGNORE_FILE" 2>/dev/null; then
+    echo "Adding eval_results_* pattern to existing .gitignore"
+    echo "" >> "$GITIGNORE_FILE"
+    echo "# Evaluation results directories" >> "$GITIGNORE_FILE"
+    echo "eval_results_*" >> "$GITIGNORE_FILE"
+  fi
+fi
+
+# Clean up old backup directories (keep only last 5 backups)
+cleanup_old_backups() {
+  local base_pattern="$(basename "$BASE_DIR")_backup_"
+  local backup_dir="$(dirname "$BASE_DIR")"
+  local backup_count=$(find "$backup_dir" -maxdepth 1 -name "${base_pattern}*" -type d 2>/dev/null | wc -l)
+
+  if [[ $backup_count -gt 5 ]]; then
+    echo "Cleaning up old backups (keeping newest 5)..."
+    # List backups sorted by modification time, remove oldest ones
+    find "$backup_dir" -maxdepth 1 -name "${base_pattern}*" -type d -print0 2>/dev/null | \
+      xargs -0 ls -dt | tail -n +6 | xargs rm -rf 2>/dev/null || true
+  fi
+}
+
+cleanup_old_backups
 
 # Validate --mode parameter
 case "$MODE" in
@@ -170,7 +231,19 @@ fi
 # =========================
 timestamp() { date +%s; }
 
-# Function to run command in a new terminal window
+# Safe function to append to CSV results file
+append_to_csv() {
+  local line="$1"
+  # Ensure the directory exists
+  mkdir -p "$(dirname "$RESULTS_CSV")"
+  # If CSV doesn't exist, create it with headers
+  if [[ ! -f "$RESULTS_CSV" ]]; then
+    echo "Task,RunId,Agent,Success(Y/N),Time(min)" > "$RESULTS_CSV"
+  fi
+  echo "$line" >> "$RESULTS_CSV"
+}
+
+# Function to run command in a new terminal window or background process
 run_in_terminal() {
   local title="$1"
   local cmd="$2"
@@ -184,7 +257,6 @@ echo "Starting $title..."
 echo "Command: $cmd"
 echo "Log file: $logfile"
 echo "Working directory: \$(pwd)"
-echo "Press Ctrl+C to stop the agent."
 echo "=================================="
 
 # Ensure log directory exists
@@ -204,20 +276,31 @@ if [[ \$exit_code -eq 0 ]]; then
 else
     echo "❌ FAILED: Agent exited with code \$exit_code" | tee -a "$logfile"
 fi
-
-echo "You can now close this terminal window." | tee -a "$logfile"
-echo "Press any key to close..."
-read -n 1
 EOF
   chmod +x "$script_file"
 
-  # Open in new terminal window (macOS)
-  osascript << EOF
+  # Try to open in new terminal window (macOS), fallback to background process
+  if command -v osascript >/dev/null 2>&1; then
+    set +e
+    osascript << EOF 2>/dev/null
 tell application "Terminal"
     do script "exec '$script_file'"
     set custom title of front window to "$title"
 end tell
 EOF
+    local osa_exit=$?
+    set -e
+
+    # If osascript failed, fall back to background execution
+    if [[ $osa_exit -ne 0 ]]; then
+      echo "Warning: Failed to open new terminal window, running $title in background..."
+      nohup "$script_file" > /dev/null 2>&1 &
+    fi
+  else
+    # No osascript available, run in background
+    echo "Running $title in background (no terminal window support)..."
+    nohup "$script_file" > /dev/null 2>&1 &
+  fi
 }
 
 run_agent_once() {
@@ -228,11 +311,11 @@ run_agent_once() {
 
   # Skip gracefully if agent CLI missing
   if [[ "$agent" == "claude" && $have_claude -eq 0 ]]; then
-    echo "${TASK},${run_id},claude,SKIP,0" >> "$RESULTS_CSV"; return 0; fi
+    append_to_csv "${TASK},${run_id},claude,SKIP,0"; return 0; fi
   if [[ "$agent" == "copilot" && $have_copilot -eq 0 ]]; then
-    echo "${TASK},${run_id},copilot,SKIP,0" >> "$RESULTS_CSV"; return 0; fi
+    append_to_csv "${TASK},${run_id},copilot,SKIP,0"; return 0; fi
   if [[ "$agent" == "gemini" && $have_gemini -eq 0 ]]; then
-    echo "${TASK},${run_id},gemini,SKIP,0" >> "$RESULTS_CSV"; return 0; fi
+    append_to_csv "${TASK},${run_id},gemini,SKIP,0"; return 0; fi
 
   rm -rf "$outdir" && mkdir -p "$outdir/.claude" "$outdir/.gemini"
   printf '%s\n' "$CLAUDE_SETTINGS" > "$outdir/.claude/settings.json"
@@ -405,7 +488,7 @@ CLAUDE_LOCAL
   local success="N"
   if [[ $gen_ec -eq 0 && $acc_ec -eq 0 ]]; then success="Y"; fi
 
-  echo "${TASK},${run_id},${agent},${success},$((dt/60)).$(((dt%60)))" >> "$RESULTS_CSV"
+  append_to_csv "${TASK},${run_id},${agent},${success},$((dt/60)).$(((dt%60)))"
   echo "==> [Run:$run_id][$agent][$TASK] SUCCESS=${success} TIME=${dt}s (gen_ec=${gen_ec}, acc_ec=${acc_ec})"
 
   popd >/dev/null
@@ -421,19 +504,18 @@ run_agent() {
   done
 }
 
-# Function to run agent in background for parallel execution
-run_agent_background() {
-  local agent="$1"
-  local prompt="$2"
-  local base="$3"
-  echo "Starting $agent in separate terminal..."
-  run_agent "$agent" "$prompt" "$base" &
-  return $!
-}
+
 
 # =========================
 # Run
 # =========================
+# Ensure the base directory exists and is writable
+mkdir -p "$BASE_DIR"
+if [[ ! -w "$BASE_DIR" ]]; then
+  echo "Error: Cannot write to directory $BASE_DIR"
+  exit 1
+fi
+
 echo "Task,RunId,Agent,Success(Y/N),Time(min)" > "$RESULTS_CSV"
 
 CLAUDE_BASE="$BASE_DIR/${TASK}-claude"
@@ -443,8 +525,8 @@ GEMINI_BASE="$BASE_DIR/${TASK}-gemini"
 if [[ -n "$AGENT" ]]; then
   echo "Running single agent: $AGENT in current terminal..."
 else
-  echo "Opening terminals for agent execution..."
-  echo "Each agent will run in a separate terminal window where you can see the progress."
+  echo "Running multiple agents in parallel..."
+  echo "Each agent will run in background and log to files in $BASE_DIR."
 fi
 echo ""
 
@@ -456,36 +538,43 @@ if [[ -n "$AGENT" ]]; then
     gemini)  run_agent gemini  "$PROMPT" "$GEMINI_BASE";;
   esac
 elif [[ "$MODE" == "parallel" ]]; then
-  echo "Running agents in parallel mode - all terminals will open simultaneously..."
+  echo "Running agents in parallel mode - all agents will run in background..."
 
-  # Start all agents in parallel, each in their own terminal
+  # Start all agents in parallel in background processes
   pids=()
 
   if [[ $have_claude -eq 1 ]]; then
-    run_agent_background claude  "$PROMPT" "$CLAUDE_BASE"
-    pids+=($!)
-    echo "Claude started in terminal (PID: $!)"
+    echo "Starting Claude in background..."
+    run_agent claude "$PROMPT" "$CLAUDE_BASE" &
+    pid=$!
+    pids+=($pid)
+    echo "Claude started (PID: $pid)"
   fi
 
   if [[ $have_copilot -eq 1 ]]; then
-    run_agent_background copilot "$PROMPT" "$COPILOT_BASE"
-    pids+=($!)
-    echo "Copilot started in terminal (PID: $!)"
+    echo "Starting Copilot in background..."
+    run_agent copilot "$PROMPT" "$COPILOT_BASE" &
+    pid=$!
+    pids+=($pid)
+    echo "Copilot started (PID: $pid)"
   fi
 
   if [[ $have_gemini -eq 1 ]]; then
-    run_agent_background gemini  "$PROMPT" "$GEMINI_BASE"
-    pids+=($!)
-    echo "Gemini started in terminal (PID: $!)"
+    echo "Starting Gemini in background..."
+    run_agent gemini "$PROMPT" "$GEMINI_BASE" &
+    pid=$!
+    pids+=($pid)
+    echo "Gemini started (PID: $pid)"
   fi
 
   echo ""
   echo "Waiting for all agents to complete..."
-  echo "You can watch the progress in the individual terminal windows."
+  echo "You can check log files in $BASE_DIR for progress."
 
   # Wait for all background processes
   for pid in "${pids[@]}"; do
-    wait "$pid" || true
+    echo "Waiting for process $pid..."
+    wait "$pid" || echo "Process $pid completed with error"
   done
 else
   echo "Running agents in serial mode - terminals will open one by one..."
