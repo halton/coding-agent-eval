@@ -231,16 +231,35 @@ fi
 # =========================
 timestamp() { date +%s; }
 
-# Safe function to append to CSV results file
+# Safe function to append to CSV results file with simple locking
 append_to_csv() {
   local line="$1"
+  local lockfile="${RESULTS_CSV}.lock"
+  local max_wait=30
+  local wait_count=0
+  
   # Ensure the directory exists
   mkdir -p "$(dirname "$RESULTS_CSV")"
+  
+  # Simple file-based locking for cross-platform compatibility
+  while [[ -f "$lockfile" && $wait_count -lt $max_wait ]]; do
+    sleep 0.1
+    ((wait_count++))
+  done
+  
+  # Create lock file
+  echo $$ > "$lockfile" 2>/dev/null || return 1
+  
   # If CSV doesn't exist, create it with headers
   if [[ ! -f "$RESULTS_CSV" ]]; then
     echo "Task,RunId,Agent,Success(Y/N),Time(min)" > "$RESULTS_CSV"
   fi
+  
+  # Append the line
   echo "$line" >> "$RESULTS_CSV"
+  
+  # Release lock
+  rm -f "$lockfile" 2>/dev/null || true
 }
 
 # Function to run command in a new terminal window or background process
@@ -361,86 +380,43 @@ CLAUDE_LOCAL
   mkdir -p "$(dirname "$logfile")"
 
   set +e
-  # Check if we're running a single agent (use current terminal) or multiple (separate terminals)
-  if [[ -n "$AGENT" ]]; then
-    # Single agent mode - run directly in current terminal
-    echo "Running $agent directly in current terminal..."
-    case "$agent" in
-      claude)
-        echo "Starting Claude with logging..." | tee "$logfile"
-        echo "Command: ${CLAUDE_CMD}" | tee -a "$logfile"
-        echo "Working directory: $(pwd)" | tee -a "$logfile"
-        echo "================================" | tee -a "$logfile"
-        timeout "${TIMEOUT_SEC}s" ${CLAUDE_CMD} "$(cat prompt.txt)" 2>&1 | tee -a "$logfile"
-        local gen_ec=${PIPESTATUS[0]}
-        echo "================================" | tee -a "$logfile"
-        echo "Claude finished with exit code: $gen_ec" | tee -a "$logfile"
-        ;;
-      copilot)
-        timeout "${TIMEOUT_SEC}s" bash -c "cat prompt.txt | ${COPILOT_CMD}" 2>&1 | tee "$logfile"
-        local gen_ec=${PIPESTATUS[0]}
-        ;;
-      gemini)
-        timeout "${TIMEOUT_SEC}s" ${GEMINI_CMD} --prompt "$(cat prompt.txt)" 2>&1 | tee "$logfile"
-        local gen_ec=${PIPESTATUS[0]}
-        ;;
-    esac
-  else
-    # Multiple agent mode - run in separate terminals
-    case "$agent" in
-      claude)
-        local cmd="cd '$outdir' && echo 'Starting Claude with logging...' && echo 'Command: ${CLAUDE_CMD}' && echo 'Working directory: \$(pwd)' && echo '================================' && timeout ${TIMEOUT_SEC}s ${CLAUDE_CMD} \"\$(cat prompt.txt)\" && echo '================================' && echo 'Claude execution completed'"
-        run_in_terminal "Claude - Run $run_id - $TASK" "$cmd" "$logfile"
-        ;;
-      copilot)
-        local cmd="cd '$outdir' && timeout ${TIMEOUT_SEC}s bash -c 'cat prompt.txt | ${COPILOT_CMD}'"
-        run_in_terminal "Copilot - Run $run_id - $TASK" "$cmd" "$logfile"
-        ;;
-      gemini)
-        local cmd="cd '$outdir' && timeout ${TIMEOUT_SEC}s ${GEMINI_CMD} --prompt \"\$(cat prompt.txt)\""
-        run_in_terminal "Gemini - Run $run_id - $TASK" "$cmd" "$logfile"
-        ;;
-    esac
-  fi
+  # Always run agents directly (no separate terminal windows)
+  echo "Running $agent directly..."
+  case "$agent" in
+    claude)
+      echo "Starting Claude with logging..." | tee "$logfile"
+      echo "Command: ${CLAUDE_CMD}" | tee -a "$logfile"
+      echo "Working directory: $(pwd)" | tee -a "$logfile"
+      echo "================================" | tee -a "$logfile"
+      timeout "${TIMEOUT_SEC}s" ${CLAUDE_CMD} "$(cat prompt.txt)" 2>&1 | tee -a "$logfile"
+      local gen_ec=${PIPESTATUS[0]}
+      echo "================================" | tee -a "$logfile"
+      echo "Claude finished with exit code: $gen_ec" | tee -a "$logfile"
+      ;;
+    copilot)
+      echo "Starting Copilot with logging..." | tee "$logfile"
+      echo "Command: ${COPILOT_CMD}" | tee -a "$logfile"
+      echo "Working directory: $(pwd)" | tee -a "$logfile"
+      echo "================================" | tee -a "$logfile"
+      timeout "${TIMEOUT_SEC}s" bash -c "cat prompt.txt | ${COPILOT_CMD}" 2>&1 | tee -a "$logfile"
+      local gen_ec=${PIPESTATUS[0]}
+      echo "================================" | tee -a "$logfile"
+      echo "Copilot finished with exit code: $gen_ec" | tee -a "$logfile"
+      ;;
+    gemini)
+      echo "Starting Gemini with logging..." | tee "$logfile"
+      echo "Command: ${GEMINI_CMD}" | tee -a "$logfile"
+      echo "Working directory: $(pwd)" | tee -a "$logfile"
+      echo "================================" | tee -a "$logfile"
+      timeout "${TIMEOUT_SEC}s" ${GEMINI_CMD} --prompt "$(cat prompt.txt)" 2>&1 | tee -a "$logfile"
+      local gen_ec=${PIPESTATUS[0]}
+      echo "================================" | tee -a "$logfile"
+      echo "Gemini finished with exit code: $gen_ec" | tee -a "$logfile"
+      ;;
+  esac
 
-  # Handle waiting logic based on execution mode
-  if [[ -n "$AGENT" ]]; then
-    # Single agent mode - already executed above, gen_ec is set
-    echo "Agent $agent completed with exit code: $gen_ec"
-  else
-    # Multiple agent mode - wait for separate terminal to finish
-    echo "Waiting for $agent to complete (watching $logfile)..."
-    echo "You can monitor progress in the '$agent - Run $run_id - $TASK' terminal window."
-
-    local wait_count=0
-    local max_wait=$((TIMEOUT_SEC + 120))  # Add 2 minute buffer
-    local gen_ec=1  # Default to failure
-
-    while [[ $wait_count -lt $max_wait ]]; do
-      if [[ -f "$logfile" ]]; then
-        if grep -q "Command finished" "$logfile" 2>/dev/null; then
-          if grep -q "Exit code: 0" "$logfile" 2>/dev/null; then
-            gen_ec=0
-          else
-            gen_ec=1
-          fi
-          break
-        fi
-      fi
-      sleep 10
-      ((wait_count += 10))
-
-      # Show progress every minute
-      if (( wait_count % 60 == 0 )); then
-        echo "Still waiting for $agent... (${wait_count}s elapsed)"
-      fi
-    done
-
-    if [[ $wait_count -ge $max_wait ]]; then
-      echo "Timeout waiting for $agent to complete after ${max_wait}s"
-      gen_ec=124  # timeout exit code
-    fi
-  fi
+  # Agent execution completed, gen_ec is already set
+  echo "Agent $agent completed with exit code: $gen_ec"
 
   set -e
 
