@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
 
       echo "Usage: $0 [OPTIONS]"
       echo "Options:"
-      echo "  --task TASK        Task to run (default: $default_task)"
+      echo "  --task TASK        Specific task to run (default: ALL tasks)"
       echo "                     Available tasks: $tasks_list"
       echo "  --agent AGENT      Run only specified agent: claude, copilot, or gemini"
       echo "  --mode MODE        Execution mode: parallel or serial (default: parallel)"
@@ -40,10 +40,11 @@ while [[ $# -gt 0 ]]; do
       echo "  --help, -h         Show this help message"
       echo ""
       echo "Examples:"
-      echo "  $0                           # Run all available agents in parallel with default task"
-      echo "  $0 --agent claude            # Run only Claude with default task"
+      echo "  $0                           # Run all agents on ALL tasks in parallel"
+      echo "  $0 --task calculator         # Run all agents on calculator task only"
+      echo "  $0 --agent claude            # Run only Claude on ALL tasks"
       echo "  $0 --task ${help_tasks[1]:-task} --mode serial  # Run specific task in serial mode"
-      echo "  $0 --agent gemini --runs 3   # Run Gemini 3 times"
+      echo "  $0 --agent gemini --runs 3   # Run Gemini 3 times on ALL tasks"
       exit 0;;
     *) echo "Unknown arg: $1. Use --help for usage information."; exit 1;;
   esac
@@ -203,28 +204,24 @@ if [[ ${#AVAILABLE_TASKS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# Set default task to first available if not specified
+# Determine which tasks to run
+TASKS_TO_RUN=()
 if [[ -z "$TASK" ]]; then
-  TASK="${AVAILABLE_TASKS[0]}"
-  echo "No task specified, using default: $TASK"
+  # No specific task specified, run all available tasks
+  TASKS_TO_RUN=("${AVAILABLE_TASKS[@]}")
+  echo "No task specified, running ALL available tasks: ${AVAILABLE_TASKS[*]}"
+else
+  # Validate the specified task exists
+  if [[ ! " ${AVAILABLE_TASKS[*]} " =~ " ${TASK} " ]]; then
+    echo "Error: Task '$TASK' not found"
+    echo "Available tasks: ${AVAILABLE_TASKS[*]}"
+    exit 1
+  fi
+  TASKS_TO_RUN=("$TASK")
+  echo "Running specific task: $TASK"
 fi
 
-# Validate the specified task exists
-if [[ ! " ${AVAILABLE_TASKS[*]} " =~ " ${TASK} " ]]; then
-  echo "Error: Task '$TASK' not found"
-  echo "Available tasks: ${AVAILABLE_TASKS[*]}"
-  exit 1
-fi
-
-# Load prompt for current task
-PROMPT_FILE="$PROMPTS_DIR/${TASK}.txt"
-PROMPT="$(cat "$PROMPT_FILE")"
-echo "Loaded prompt from: $PROMPT_FILE"
-
-# Default: use task name as project root name if not set above
-if [[ -z "${PROJECT_ROOT_NAME:-}" ]]; then
-  PROJECT_ROOT_NAME="$TASK"
-fi
+echo "Tasks to execute: ${TASKS_TO_RUN[*]}"
 
 # =========================
 # Helpers
@@ -237,27 +234,27 @@ append_to_csv() {
   local lockfile="${RESULTS_CSV}.lock"
   local max_wait=30
   local wait_count=0
-  
+
   # Ensure the directory exists
   mkdir -p "$(dirname "$RESULTS_CSV")"
-  
+
   # Simple file-based locking for cross-platform compatibility
   while [[ -f "$lockfile" && $wait_count -lt $max_wait ]]; do
     sleep 0.1
     ((wait_count++))
   done
-  
+
   # Create lock file
   echo $$ > "$lockfile" 2>/dev/null || return 1
-  
+
   # If CSV doesn't exist, create it with headers
   if [[ ! -f "$RESULTS_CSV" ]]; then
     echo "Task,RunId,Agent,Success(Y/N),Time(min)" > "$RESULTS_CSV"
   fi
-  
+
   # Append the line
   echo "$line" >> "$RESULTS_CSV"
-  
+
   # Release lock
   rm -f "$lockfile" 2>/dev/null || true
 }
@@ -480,6 +477,94 @@ run_agent() {
   done
 }
 
+# Function to run all agents for a single task
+run_single_task() {
+  local task_name="$1"
+
+  echo ""
+  echo "=========================================="
+  echo "🚀 Starting evaluation for task: $task_name"
+  echo "=========================================="
+
+  # Load prompt for current task
+  local prompt_file="$PROMPTS_DIR/${task_name}.txt"
+  local prompt="$(cat "$prompt_file")"
+  echo "Loaded prompt from: $prompt_file"
+
+  # Set project root name for this task
+  PROJECT_ROOT_NAME="$task_name"
+
+  # Set up task-specific directories
+  local claude_base="$BASE_DIR/${task_name}-claude"
+  local copilot_base="$BASE_DIR/${task_name}-copilot"
+  local gemini_base="$BASE_DIR/${task_name}-gemini"
+
+  if [[ -n "$AGENT" ]]; then
+    echo "Running single agent: $AGENT for task: $task_name"
+    case "$AGENT" in
+      claude)  run_agent claude  "$prompt" "$claude_base";;
+      copilot) run_agent copilot "$prompt" "$copilot_base";;
+      gemini)  run_agent gemini  "$prompt" "$gemini_base";;
+    esac
+  elif [[ "$MODE" == "parallel" ]]; then
+    echo "Running agents in parallel mode for task: $task_name..."
+
+    # Start all agents in parallel in background processes
+    local pids=()
+
+    if [[ $have_claude -eq 1 ]]; then
+      echo "Starting Claude in background for task: $task_name..."
+      run_agent claude "$prompt" "$claude_base" &
+      local pid=$!
+      pids+=($pid)
+      echo "Claude started (PID: $pid)"
+    fi
+
+    if [[ $have_copilot -eq 1 ]]; then
+      echo "Starting Copilot in background for task: $task_name..."
+      run_agent copilot "$prompt" "$copilot_base" &
+      local pid=$!
+      pids+=($pid)
+      echo "Copilot started (PID: $pid)"
+    fi
+
+    if [[ $have_gemini -eq 1 ]]; then
+      echo "Starting Gemini in background for task: $task_name..."
+      run_agent gemini "$prompt" "$gemini_base" &
+      local pid=$!
+      pids+=($pid)
+      echo "Gemini started (PID: $pid)"
+    fi
+
+    echo "Waiting for all agents to complete for task: $task_name..."
+
+    # Wait for all background processes
+    for pid in "${pids[@]}"; do
+      echo "Waiting for process $pid..."
+      wait "$pid" || echo "Process $pid completed with error"
+    done
+  else
+    echo "Running agents in serial mode for task: $task_name..."
+
+    if [[ $have_claude -eq 1 ]]; then
+      echo "Running Claude for task: $task_name..."
+      run_agent claude  "$prompt" "$claude_base"
+    fi
+
+    if [[ $have_copilot -eq 1 ]]; then
+      echo "Running Copilot for task: $task_name..."
+      run_agent copilot "$prompt" "$copilot_base"
+    fi
+
+    if [[ $have_gemini -eq 1 ]]; then
+      echo "Running Gemini for task: $task_name..."
+      run_agent gemini  "$prompt" "$gemini_base"
+    fi
+  fi
+
+  echo "✅ Completed evaluation for task: $task_name"
+}
+
 
 
 # =========================
@@ -494,85 +579,32 @@ fi
 
 echo "Task,RunId,Agent,Success(Y/N),Time(min)" > "$RESULTS_CSV"
 
-CLAUDE_BASE="$BASE_DIR/${TASK}-claude"
-COPILOT_BASE="$BASE_DIR/${TASK}-copilot"
-GEMINI_BASE="$BASE_DIR/${TASK}-gemini"
-
-if [[ -n "$AGENT" ]]; then
-  echo "Running single agent: $AGENT in current terminal..."
-else
-  echo "Running multiple agents in parallel..."
-  echo "Each agent will run in background and log to files in $BASE_DIR."
-fi
-echo ""
-
 if [[ -n "$AGENT" ]]; then
   echo "Running single agent: $AGENT"
-  case "$AGENT" in
-    claude)  run_agent claude  "$PROMPT" "$CLAUDE_BASE";;
-    copilot) run_agent copilot "$PROMPT" "$COPILOT_BASE";;
-    gemini)  run_agent gemini  "$PROMPT" "$GEMINI_BASE";;
-  esac
-elif [[ "$MODE" == "parallel" ]]; then
-  echo "Running agents in parallel mode - all agents will run in background..."
-
-  # Start all agents in parallel in background processes
-  pids=()
-
-  if [[ $have_claude -eq 1 ]]; then
-    echo "Starting Claude in background..."
-    run_agent claude "$PROMPT" "$CLAUDE_BASE" &
-    pid=$!
-    pids+=($pid)
-    echo "Claude started (PID: $pid)"
-  fi
-
-  if [[ $have_copilot -eq 1 ]]; then
-    echo "Starting Copilot in background..."
-    run_agent copilot "$PROMPT" "$COPILOT_BASE" &
-    pid=$!
-    pids+=($pid)
-    echo "Copilot started (PID: $pid)"
-  fi
-
-  if [[ $have_gemini -eq 1 ]]; then
-    echo "Starting Gemini in background..."
-    run_agent gemini "$PROMPT" "$GEMINI_BASE" &
-    pid=$!
-    pids+=($pid)
-    echo "Gemini started (PID: $pid)"
-  fi
-
-  echo ""
-  echo "Waiting for all agents to complete..."
-  echo "You can check log files in $BASE_DIR for progress."
-
-  # Wait for all background processes
-  for pid in "${pids[@]}"; do
-    echo "Waiting for process $pid..."
-    wait "$pid" || echo "Process $pid completed with error"
-  done
 else
-  echo "Running agents in serial mode - terminals will open one by one..."
-
-  if [[ $have_claude -eq 1 ]]; then
-    echo "Running Claude..."
-    run_agent claude  "$PROMPT" "$CLAUDE_BASE"
+  if [[ "$MODE" == "parallel" ]]; then
+    echo "Running multiple agents in parallel..."
+  else
+    echo "Running multiple agents in serial..."
   fi
-
-  if [[ $have_copilot -eq 1 ]]; then
-    echo "Running Copilot..."
-    run_agent copilot "$PROMPT" "$COPILOT_BASE"
-  fi
-
-  if [[ $have_gemini -eq 1 ]]; then
-    echo "Running Gemini..."
-    run_agent gemini  "$PROMPT" "$GEMINI_BASE"
-  fi
+  echo "Each agent will run and log to files in $BASE_DIR."
 fi
 
+# Run evaluation for each task
+for task in "${TASKS_TO_RUN[@]}"; do
+  # Set TASK environment variable for report generation
+  export TASK="$task"
+  run_single_task "$task"
+done
+
 echo ""
-echo "All agents have completed. Check the terminal windows for detailed output."
+echo "=========================================="
+echo "🎉 All evaluations completed!"
+echo "=========================================="
+echo "Tasks evaluated: ${TASKS_TO_RUN[*]}"
+if [[ ${#TASKS_TO_RUN[@]} -gt 1 ]]; then
+  echo "Total tasks: ${#TASKS_TO_RUN[@]}"
+fi
 
 # =========================
 # Report (HTML)
@@ -712,13 +744,21 @@ with open(html_path, "w", encoding="utf-8") as f:
 print("Wrote", html_path)
 PY
 
-export TASK
+# Set TASK for report generation (use first task if multiple)
+export TASK="${TASKS_TO_RUN[0]}"
+if [[ ${#TASKS_TO_RUN[@]} -gt 1 ]]; then
+  export TASK="Multiple Tasks (${TASKS_TO_RUN[*]})"
+fi
+
 "$PYTHON_BIN" "$REPORT_PY"
 
 echo
 echo "==== RESULTS CSV ===="
 cat "$RESULTS_CSV"
 echo
-echo "Report: $REPORT_HTML"
-echo "Workspaces under: $BASE_DIR"
+echo "📊 Report: $REPORT_HTML"
+echo "📁 Workspaces under: $BASE_DIR"
+if [[ ${#TASKS_TO_RUN[@]} -gt 1 ]]; then
+  echo "📋 Tasks completed: ${TASKS_TO_RUN[*]}"
+fi
 

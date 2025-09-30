@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Runner</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #0ff;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .game-container {
+            text-align: center;
+            position: relative;
+        }
+        
+        canvas {
+            border: 2px solid #0ff;
+            background: #001122;
+            box-shadow: 0 0 20px #0ff;
+        }
+        
+        .ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            font-size: 18px;
+            text-shadow: 0 0 10px #0ff;
+        }
+        
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border: 2px solid #ff0080;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 0 20px #ff0080;
+            display: none;
+        }
+        
+        .controls {
+            margin-top: 20px;
+            font-size: 14px;
+            opacity: 0.7;
+        }
+        
+        .high-score {
+            color: #ffff00;
+            text-shadow: 0 0 10px #ffff00;
+        }
+        
+        .streak {
+            color: #ff8000;
+            text-shadow: 0 0 10px #ff8000;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        
+        <div class="ui">
+            <div>Score: <span id="score">0</span></div>
+            <div>High Score: <span id="highScore" class="high-score">0</span></div>
+            <div>Distance: <span id="distance">0</span>m</div>
+            <div class="streak">Streak: <span id="streak">0</span>/3</div>
+        </div>
+        
+        <div id="gameOver" class="game-over">
+            <h2>Game Over!</h2>
+            <div>Final Score: <span id="finalScore">0</span></div>
+            <div id="newHighScore" class="high-score" style="display: none;">🎉 NEW HIGH SCORE! 🎉</div>
+            <div style="margin-top: 15px;">
+                <div>Distance: <span id="finalDistance">0</span>m</div>
+                <div>Perfect Jumps: <span id="finalPerfectJumps">0</span></div>
+                <div>Streak Bonuses: <span id="finalStreakBonus">0</span></div>
+            </div>
+            <div style="margin-top: 20px; font-size: 16px;">
+                Press <strong>R</strong> to restart
+            </div>
+        </div>
+        
+        <div class="controls">
+            <div><strong>SPACE</strong> or <strong>↑</strong> to jump</div>
+            <div><strong>P</strong> to pause • <strong>R</strong> to restart</div>
+        </div>
+    </div>
+
+    <!-- Load game logic -->
+    <script src="../src/physics.js"></script>
+    <script src="../src/spawner.js"></script>
+    <script src="../src/score.js"></script>
+    
+    <!-- Load presentation layer -->
+    <script src="input.js"></script>
+    <script src="render.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

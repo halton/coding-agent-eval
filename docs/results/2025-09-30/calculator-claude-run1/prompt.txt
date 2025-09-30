@@ -1,0 +1,29 @@
+Create a simple web calculator using HTML, CSS, and JavaScript.
+
+Requirements:
+1) Basic arithmetic operations: +, -, *, /
+2) Clear and equals buttons
+3) Display showing current number and result
+4) Keyboard support for number input
+5) Responsive design that works on mobile
+
+Structure:
+calculator/
+  index.html
+  style.css
+  script.js
+  README.md
+  tests.html
+
+Features:
+- Clean, modern interface
+- Error handling for division by zero
+- Memory functions (M+, M-, MR, MC)
+- History of last 5 calculations
+- Keyboard shortcuts
+
+Constraints:
+- No external libraries or frameworks
+- Vanilla HTML/CSS/JavaScript only
+- Cross-browser compatible
+- Accessible (proper ARIA labels)

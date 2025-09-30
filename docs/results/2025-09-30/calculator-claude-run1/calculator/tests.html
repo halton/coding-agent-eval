@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculator Tests</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        h1, h2 {
+            color: #333;
+        }
+
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .test {
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #ccc;
+            background: #fafafa;
+        }
+
+        .test.pass {
+            border-left-color: #4CAF50;
+            background: #f1f8f4;
+        }
+
+        .test.fail {
+            border-left-color: #f44336;
+            background: #fef1f0;
+        }
+
+        .test-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .test-result {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .summary {
+            padding: 15px;
+            background: #333;
+            color: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .summary.all-pass {
+            background: #4CAF50;
+        }
+
+        .summary.some-fail {
+            background: #f44336;
+        }
+
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #1976D2;
+        }
+
+        .calculator-frame {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Calculator Test Suite</h1>
+
+    <div id="summary" class="summary">
+        <h2>Test Summary</h2>
+        <div id="summaryText">Click "Run Tests" to start testing</div>
+    </div>
+
+    <button onclick="runTests()">Run Tests</button>
+
+    <div id="testResults"></div>
+
+    <!-- Hidden iframe for testing -->
+    <iframe id="calculatorFrame" class="calculator-frame" src="index.html"></iframe>
+
+    <script>
+        class CalculatorTester {
+            constructor() {
+                this.results = [];
+                this.calculator = null;
+            }
+
+            async initialize() {
+                return new Promise((resolve) => {
+                    const frame = document.getElementById('calculatorFrame');
+                    frame.onload = () => {
+                        const frameWindow = frame.contentWindow;
+
+                        // Create a mock calculator for testing
+                        this.calculator = {
+                            currentValue: '0',
+                            previousValue: '',
+                            operation: null,
+                            shouldResetDisplay = false,
+                            memory: 0,
+                            history: [],
+
+                            appendNumber(num) {
+                                if (this.shouldResetDisplay) {
+                                    this.currentValue = '0';
+                                    this.shouldResetDisplay = false;
+                                }
+                                if (this.currentValue === '0') {
+                                    this.currentValue = num;
+                                } else {
+                                    this.currentValue += num;
+                                }
+                            },
+
+                            setOperation(op) {
+                                this.operation = op;
+                                this.previousValue = this.currentValue;
+                                this.shouldResetDisplay = true;
+                            },
+
+                            calculate() {
+                                if (this.operation === null || this.previousValue === '') return;
+
+                                const prev = parseFloat(this.previousValue);
+                                const current = parseFloat(this.currentValue);
+                                let result;
+
+                                switch (this.operation) {
+                                    case '+': result = prev + current; break;
+                                    case '-': result = prev - current; break;
+                                    case '*': result = prev * current; break;
+                                    case '/':
+                                        if (current === 0) {
+                                            this.currentValue = 'Error';
+                                            return;
+                                        }
+                                        result = prev / current;
+                                        break;
+                                }
+
+                                this.currentValue = result.toString();
+                                this.operation = null;
+                                this.previousValue = '';
+                                this.shouldResetDisplay = true;
+                            },
+
+                            clear() {
+                                this.currentValue = '0';
+                                this.previousValue = '';
+                                this.operation = null;
+                                this.shouldResetDisplay = false;
+                            },
+
+                            appendDecimal() {
+                                if (!this.currentValue.includes('.')) {
+                                    this.currentValue += '.';
+                                }
+                            },
+
+                            negate() {
+                                if (this.currentValue !== '0') {
+                                    if (this.currentValue.startsWith('-')) {
+                                        this.currentValue = this.currentValue.slice(1);
+                                    } else {
+                                        this.currentValue = '-' + this.currentValue;
+                                    }
+                                }
+                            },
+
+                            memoryAdd() {
+                                this.memory += parseFloat(this.currentValue);
+                                this.shouldResetDisplay = true;
+                            },
+
+                            memorySubtract() {
+                                this.memory -= parseFloat(this.currentValue);
+                                this.shouldResetDisplay = true;
+                            },
+
+                            memoryRecall() {
+                                this.currentValue = this.memory.toString();
+                                this.shouldResetDisplay = true;
+                            },
+
+                            memoryClear() {
+                                this.memory = 0;
+                            }
+                        };
+
+                        resolve();
+                    };
+                    frame.src = 'index.html';
+                });
+            }
+
+            test(name, testFunction) {
+                try {
+                    // Reset calculator before each test
+                    this.calculator.clear();
+                    this.calculator.memoryClear();
+
+                    const result = testFunction(this.calculator);
+                    this.results.push({
+                        name: name,
+                        passed: result.passed,
+                        message: result.message,
+                        expected: result.expected,
+                        actual: result.actual
+                    });
+                } catch (error) {
+                    this.results.push({
+                        name: name,
+                        passed: false,
+                        message: `Test error: ${error.message}`,
+                        expected: 'No error',
+                        actual: error.toString()
+                    });
+                }
+            }
+
+            assert(condition, expected, actual) {
+                return {
+                    passed: condition,
+                    message: condition ? 'Passed' : 'Failed',
+                    expected: expected,
+                    actual: actual
+                };
+            }
+
+            displayResults() {
+                const resultsDiv = document.getElementById('testResults');
+                const summaryDiv = document.getElementById('summary');
+                const summaryText = document.getElementById('summaryText');
+
+                resultsDiv.innerHTML = '';
+
+                // Group tests by category
+                const categories = {
+                    'Basic Operations': [],
+                    'Decimal Numbers': [],
+                    'Edge Cases': [],
+                    'Memory Functions': [],
+                    'Chain Operations': []
+                };
+
+                this.results.forEach(result => {
+                    for (let category in categories) {
+                        if (result.name.includes(category) ||
+                            (category === 'Basic Operations' && result.name.includes('Addition')) ||
+                            (category === 'Basic Operations' && result.name.includes('Subtraction')) ||
+                            (category === 'Basic Operations' && result.name.includes('Multiplication')) ||
+                            (category === 'Basic Operations' && result.name.includes('Division')) ||
+                            (category === 'Decimal Numbers' && result.name.includes('Decimal')) ||
+                            (category === 'Edge Cases' && (result.name.includes('zero') || result.name.includes('Negative'))) ||
+                            (category === 'Memory Functions' && result.name.includes('Memory')) ||
+                            (category === 'Chain Operations' && result.name.includes('Chain'))) {
+                            categories[category].push(result);
+                            break;
+                        }
+                    }
+                });
+
+                // Display results by category
+                for (let category in categories) {
+                    if (categories[category].length > 0) {
+                        const section = document.createElement('div');
+                        section.className = 'test-section';
+
+                        const title = document.createElement('h2');
+                        title.textContent = category;
+                        section.appendChild(title);
+
+                        categories[category].forEach(result => {
+                            const testDiv = document.createElement('div');
+                            testDiv.className = `test ${result.passed ? 'pass' : 'fail'}`;
+
+                            const titleDiv = document.createElement('div');
+                            titleDiv.className = 'test-title';
+                            titleDiv.textContent = `${result.passed ? '✓' : '✗'} ${result.name}`;
+
+                            const resultDiv = document.createElement('div');
+                            resultDiv.className = 'test-result';
+                            if (!result.passed) {
+                                resultDiv.textContent = `Expected: ${result.expected}, Got: ${result.actual}`;
+                            } else {
+                                resultDiv.textContent = result.message;
+                            }
+
+                            testDiv.appendChild(titleDiv);
+                            testDiv.appendChild(resultDiv);
+                            section.appendChild(testDiv);
+                        });
+
+                        resultsDiv.appendChild(section);
+                    }
+                }
+
+                // Update summary
+                const totalTests = this.results.length;
+                const passedTests = this.results.filter(r => r.passed).length;
+                const failedTests = totalTests - passedTests;
+
+                summaryText.innerHTML = `
+                    <strong>Total Tests:</strong> ${totalTests}<br>
+                    <strong>Passed:</strong> ${passedTests}<br>
+                    <strong>Failed:</strong> ${failedTests}<br>
+                    <strong>Success Rate:</strong> ${((passedTests / totalTests) * 100).toFixed(1)}%
+                `;
+
+                if (failedTests === 0) {
+                    summaryDiv.className = 'summary all-pass';
+                } else {
+                    summaryDiv.className = 'summary some-fail';
+                }
+            }
+        }
+
+        async function runTests() {
+            const tester = new CalculatorTester();
+            await tester.initialize();
+
+            // Basic Operations Tests
+            tester.test('Addition: 5 + 3', (calc) => {
+                calc.appendNumber('5');
+                calc.setOperation('+');
+                calc.appendNumber('3');
+                calc.calculate();
+                return tester.assert(calc.currentValue === '8', '8', calc.currentValue);
+            });
+
+            tester.test('Subtraction: 10 - 4', (calc) => {
+                calc.appendNumber('1');
+                calc.appendNumber('0');
+                calc.setOperation('-');
+                calc.appendNumber('4');
+                calc.calculate();
+                return tester.assert(calc.currentValue === '6', '6', calc.currentValue);
+            });
+
+            tester.test('Multiplication: 6 * 7', (calc) => {
+                calc.appendNumber('6');
+                calc.setOperation('*');
+                calc.appendNumber('7');
+                calc.calculate();
+                return tester.assert(calc.currentValue === '42', '42', calc.currentValue);
+            });
+
+            tester.test('Division: 15 / 3', (calc) => {
+                calc.appendNumber('1');
+                calc.appendNumber('5');
+                calc.setOperation('/');
+                calc.appendNumber('3');
+                calc.calculate();
+                return tester.assert(calc.currentValue === '5', '5', calc.currentValue);
+            });
+
+            // Decimal Numbers
+            tester.test('Decimal Addition: 0.1 + 0.2', (calc) => {
+                calc.appendNumber('0');
+                calc.appendDecimal();
+                calc.appendNumber('1');
+                calc.setOperation('+');
+                calc.appendNumber('0');
+                calc.appendDecimal();
+                calc.appendNumber('2');
+                calc.calculate();
+                const result = parseFloat(calc.currentValue).toFixed(10);
+                return tester.assert(result.startsWith('0.3'), '0.3', result);
+            });
+
+            tester.test('Decimal Division: 10 / 3', (calc) => {
+                calc.appendNumber('1');
+                calc.appendNumber('0');
+                calc.setOperation('/');
+                calc.appendNumber('3');
+                calc.calculate();
+                const result = parseFloat(calc.currentValue);
+                return tester.assert(Math.abs(result - 3.33333333) < 0.0001, '3.33333...', calc.currentValue);
+            });
+
+            // Edge Cases
+            tester.test('Division by zero', (calc) => {
+                calc.appendNumber('5');
+                calc.setOperation('/');
+                calc.appendNumber('0');
+                calc.calculate();
+                return tester.assert(calc.currentValue === 'Error' || calc.currentValue === 'Infinity',
+                    'Error or Infinity', calc.currentValue);
+            });
+
+            tester.test('Negative numbers: -5 + 3', (calc) => {
+                calc.appendNumber('5');
+                calc.negate();
+                calc.setOperation('+');
+                calc.appendNumber('3');
+                calc.calculate();
+                return tester.assert(calc.currentValue === '-2', '-2', calc.currentValue);
+            });
+
+            // Memory Functions
+            tester.test('Memory Add and Recall', (calc) => {
+                calc.appendNumber('5');
+                calc.memoryAdd();
+                calc.clear();
+                calc.memoryRecall();
+                return tester.assert(calc.currentValue === '5', '5', calc.currentValue);
+            });
+
+            tester.test('Memory Subtract', (calc) => {
+                calc.memoryClear();
+                calc.appendNumber('1');
+                calc.appendNumber('0');
+                calc.memoryAdd();
+                calc.clear();
+                calc.appendNumber('3');
+                calc.memorySubtract();
+                calc.memoryRecall();
+                return tester.assert(calc.currentValue === '7', '7', calc.currentValue);
+            });
+
+            // Chain Operations
+            tester.test('Chain Operations: 5 + 3 * 2', (calc) => {
+                calc.appendNumber('5');
+                calc.setOperation('+');
+                calc.appendNumber('3');
+                calc.setOperation('*');
+                calc.appendNumber('2');
+                calc.calculate();
+                return tester.assert(calc.currentValue === '16', '16', calc.currentValue);
+            });
+
+            tester.test('Multiple operations: 10 - 3 + 5', (calc) => {
+                calc.appendNumber('1');
+                calc.appendNumber('0');
+                calc.setOperation('-');
+                calc.appendNumber('3');
+                calc.setOperation('+');
+                calc.appendNumber('5');
+                calc.calculate();
+                return tester.assert(calc.currentValue === '12', '12', calc.currentValue);
+            });
+
+            // Display results
+            tester.displayResults();
+        }
+    </script>
+</body>
+</html>

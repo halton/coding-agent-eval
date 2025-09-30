@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculator Tests</title>
+    <link rel="stylesheet" href="https://unpkg.com/qunit@2.20.0/qunit/qunit.css">
+</head>
+<body>
+    <div id="qunit"></div>
+    <div id="qunit-fixture"></div>
+    <script src="https://unpkg.com/qunit@2.20.0/qunit/qunit.js"></script>
+    <script src="script.js"></script>
+    <script>
+        QUnit.module('Calculator Tests', function() {
+            QUnit.test('Addition', function(assert) {
+                handleNumberClick('2');
+                handleOperatorClick('add');
+                handleNumberClick('3');
+                handleEqualsClick();
+                assert.equal(display.textContent, '5', '2 + 3 = 5');
+                handleClearClick();
+            });
+
+            QUnit.test('Subtraction', function(assert) {
+                handleNumberClick('5');
+                handleOperatorClick('subtract');
+                handleNumberClick('2');
+                handleEqualsClick();
+                assert.equal(display.textContent, '3', '5 - 2 = 3');
+                handleClearClick();
+            });
+
+            QUnit.test('Multiplication', function(assert) {
+                handleNumberClick('4');
+                handleOperatorClick('multiply');
+                handleNumberClick('3');
+                handleEqualsClick();
+                assert.equal(display.textContent, '12', '4 * 3 = 12');
+                handleClearClick();
+            });
+
+            QUnit.test('Division', function(assert) {
+                handleNumberClick('10');
+                handleOperatorClick('divide');
+                handleNumberClick('2');
+                handleEqualsClick();
+                assert.equal(display.textContent, '5', '10 / 2 = 5');
+                handleClearClick();
+            });
+
+            QUnit.test('Division by zero', function(assert) {
+                handleNumberClick('5');
+                handleOperatorClick('divide');
+                handleNumberClick('0');
+                handleEqualsClick();
+                assert.equal(display.textContent, 'Error', 'Division by zero should return Error');
+                handleClearClick();
+            });
+        });
+    </script>
+</body>
+</html>

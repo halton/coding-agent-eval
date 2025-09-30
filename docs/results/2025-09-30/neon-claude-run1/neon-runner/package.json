@@ -1,0 +1,13 @@
+{
+  "name": "neon-runner",
+  "version": "1.0.0",
+  "description": "Neon Runner - HTML5 Canvas endless runner game",
+  "scripts": {
+    "test": "jest -c jest.config.json --runInBand",
+    "start": "npx http-server public -p 8080 -c-1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "http-server": "^14.1.1"
+  }
+}

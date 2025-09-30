@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Calculator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="calculator-container">
+        <div class="calculator">
+            <div class="display">
+                <div class="display-history" id="history" aria-label="Calculation history"></div>
+                <div class="display-current" id="display" aria-label="Current calculation">0</div>
+            </div>
+            
+            <div class="memory-section">
+                <button class="memory-btn" id="mc" aria-label="Memory clear">MC</button>
+                <button class="memory-btn" id="mr" aria-label="Memory recall">MR</button>
+                <button class="memory-btn" id="m-plus" aria-label="Memory add">M+</button>
+                <button class="memory-btn" id="m-minus" aria-label="Memory subtract">M-</button>
+            </div>
+            
+            <div class="buttons">
+                <button class="btn clear" id="clear" aria-label="Clear">C</button>
+                <button class="btn clear" id="clear-entry" aria-label="Clear entry">CE</button>
+                <button class="btn operator" data-operator="/" aria-label="Divide">÷</button>
+                <button class="btn operator" data-operator="*" aria-label="Multiply">×</button>
+                
+                <button class="btn number" data-number="7" aria-label="Seven">7</button>
+                <button class="btn number" data-number="8" aria-label="Eight">8</button>
+                <button class="btn number" data-number="9" aria-label="Nine">9</button>
+                <button class="btn operator" data-operator="-" aria-label="Subtract">-</button>
+                
+                <button class="btn number" data-number="4" aria-label="Four">4</button>
+                <button class="btn number" data-number="5" aria-label="Five">5</button>
+                <button class="btn number" data-number="6" aria-label="Six">6</button>
+                <button class="btn operator" data-operator="+" aria-label="Add">+</button>
+                
+                <button class="btn number" data-number="1" aria-label="One">1</button>
+                <button class="btn number" data-number="2" aria-label="Two">2</button>
+                <button class="btn number" data-number="3" aria-label="Three">3</button>
+                <button class="btn equals" id="equals" aria-label="Equals" rowspan="2">=</button>
+                
+                <button class="btn number zero" data-number="0" aria-label="Zero">0</button>
+                <button class="btn number" id="decimal" aria-label="Decimal point">.</button>
+                <button class="btn backspace" id="backspace" aria-label="Backspace">⌫</button>
+            </div>
+        </div>
+        
+        <div class="history-panel" id="history-panel">
+            <h3>History</h3>
+            <div class="history-list" id="history-list"></div>
+            <button class="clear-history" id="clear-history">Clear History</button>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

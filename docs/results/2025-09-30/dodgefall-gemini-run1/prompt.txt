@@ -1,0 +1,43 @@
+Create a Pygame arcade game called "Dodgefall".
+
+Functional requirements:
+1) Player moves left/right with A/D or ←/→.
+2) Falling obstacles spawn and gradually speed up.
+3) Collectible stars increase score; grabbing stars within 3 seconds builds a combo multiplier.
+4) Lives = 3. On collision: lose a life and ~1.5s invulnerability.
+5) P = pause/resume, R = restart on game over, Esc = quit.
+6) Persist high score in highscore.json.
+
+Engineering requirements:
+- Separate pure logic from rendering & input so unit tests run headless.
+- Structure:
+
+dodgefall/
+  game/
+    __init__.py
+    logic.py
+    model.py
+    render.py
+    main.py
+  tests/
+    test_logic.py
+  requirements.txt (pygame, pytest)
+  README.md
+  accept.sh
+
+Headless & acceptance:
+- When HEADLESS=1: set SDL_VIDEODRIVER=dummy, tick ~120 frames, then exit 0.
+- accept.sh:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  python3 -m venv venv
+  source venv/bin/activate
+  python -m pip install -r requirements.txt
+  pytest -q
+  HEADLESS=1 python -m game.main
+  echo "ACCEPT: OK"
+
+Constraints:
+- Keep code small and deterministic.
+- No heavy assets; use shapes or tiny PNGs.
+- Python 3.10+.

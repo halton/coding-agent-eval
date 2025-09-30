@@ -1,0 +1,23 @@
+{
+  "name": "neon-runner",
+  "version": "1.0.0",
+  "description": "A neon-themed endless runner game built with HTML5 Canvas and vanilla JavaScript",
+  "main": "public/index.html",
+  "scripts": {
+    "test": "node test-runner.js",
+    "start": "npx http-server public -p 8080 -c-1"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "jest": "^29.7.0"
+  },
+  "keywords": [
+    "game",
+    "html5",
+    "canvas",
+    "javascript",
+    "runner"
+  ],
+  "author": "",
+  "license": "MIT"
+}
